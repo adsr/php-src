@@ -55,6 +55,8 @@ PHP_FUNCTION(extract);
 PHP_FUNCTION(compact);
 PHP_FUNCTION(array_fill);
 PHP_FUNCTION(array_fill_keys);
+PHP_FUNCTION(array_ufill);
+PHP_FUNCTION(array_ufill_keys);
 PHP_FUNCTION(range);
 PHP_FUNCTION(shuffle);
 PHP_FUNCTION(array_multisort);

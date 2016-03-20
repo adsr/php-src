@@ -3295,6 +3295,8 @@ const zend_function_entry basic_functions[] = { /* {{{ */
 	PHP_FE(compact,															arginfo_compact)
 	PHP_FE(array_fill,														arginfo_array_fill)
 	PHP_FE(array_fill_keys,													arginfo_array_fill_keys)
+	PHP_FE(array_ufill,														arginfo_array_fill)
+	PHP_FE(array_ufill_keys,												arginfo_array_fill_keys)
 	PHP_FE(range,															arginfo_range)
 	PHP_FE(array_multisort,													arginfo_array_multisort)
 	PHP_FE(array_push,														arginfo_array_push)

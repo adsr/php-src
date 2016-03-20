@@ -1994,15 +1994,22 @@ PHP_FUNCTION(compact)
 }
 /* }}} */
 
-/* {{{ proto array array_fill(int start_key, int num, mixed val)
-   Create an array containing num elements starting with index start_key each initialized to val */
-PHP_FUNCTION(array_fill)
-{
+static void php_array_fill(INTERNAL_FUNCTION_PARAMETERS, int user) {
 	zval *val;
-	zend_long start_key, num;
+	zend_long start_key, num, i;
+	zend_fcall_info fci = empty_fcall_info;
+	zend_fcall_info_cache fci_cache = empty_fcall_info_cache;
+	zval uval, ukey;
+	int first = 1;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "llz", &start_key, &num, &val) == FAILURE) {
-		return;
+	if (user) {
+		if (zend_parse_parameters(ZEND_NUM_ARGS(), "llf", &start_key, &num, &fci, &fci_cache) == FAILURE) {
+			return;
+		}
+	} else {
+		if (zend_parse_parameters(ZEND_NUM_ARGS(), "llz", &start_key, &num, &val) == FAILURE) {
+			return;
+		}
 	}
 
 	if (num < 0) {
@@ -2013,17 +2020,27 @@ PHP_FUNCTION(array_fill)
 	/* allocate an array for return */
 	array_init_size(return_value, (uint32_t)num);
 
-	if (num == 0) {
-		return;
-	}
-
-	num--;
-	zend_hash_index_update(Z_ARRVAL_P(return_value), start_key, val);
-	Z_TRY_ADDREF_P(val);
-
-	while (num--) {
-		if (zend_hash_next_index_insert(Z_ARRVAL_P(return_value), val) != NULL) {
-			Z_TRY_ADDREF_P(val);
+	for (i = 0; i < num; i++) {
+		if (user) {
+			ZVAL_LONG(&ukey, start_key + i);
+			fci.retval = &uval;
+			fci.param_count = 1;
+			fci.params = &ukey;
+			fci.no_separation = 0;
+			if (zend_call_function(&fci, &fci_cache) != SUCCESS || Z_TYPE(uval) == IS_UNDEF) {
+				zval_dtor(return_value);
+				zval_ptr_dtor(&uval);
+				php_error_docref(NULL, E_WARNING, "An error occurred while invoking the callback");
+				RETURN_FALSE;
+			}
+			val = &uval;
+		}
+		if (first) {
+			zend_hash_index_update(Z_ARRVAL_P(return_value), start_key, val);
+			if (!user) Z_TRY_ADDREF_P(val);
+			first = 0;
+		} else if (zend_hash_next_index_insert(Z_ARRVAL_P(return_value), val) != NULL) {
+			if (!user) Z_TRY_ADDREF_P(val);
 		} else {
 			zval_dtor(return_value);
 			php_error_docref(NULL, E_WARNING, "Cannot add element to the array as the next element is already occupied");
@@ -2031,16 +2048,39 @@ PHP_FUNCTION(array_fill)
 		}
 	}
 }
+
+/* {{{ proto array array_fill(int start_key, int num, mixed val)
+   Create an array containing num elements starting with index start_key each
+   initialized to val */
+PHP_FUNCTION(array_fill)
+{
+	php_array_fill(INTERNAL_FUNCTION_PARAM_PASSTHRU, 0);
+}
 /* }}} */
 
-/* {{{ proto array array_fill_keys(array keys, mixed val)
-   Create an array using the elements of the first parameter as keys each initialized to val */
-PHP_FUNCTION(array_fill_keys)
+/* {{{ proto array array_ufill(int start_key, int num, callback)
+   Create an array containing num elements starting with index start_key each
+   initialized to the return value of callback */
+PHP_FUNCTION(array_ufill)
 {
-	zval *keys, *val, *entry;
+	php_array_fill(INTERNAL_FUNCTION_PARAM_PASSTHRU, 1);
+}
+/* }}} */
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "az", &keys, &val) == FAILURE) {
-		return;
+static void php_array_fill_keys(INTERNAL_FUNCTION_PARAMETERS, int user) {
+	zval *keys, *val, *entry;
+	zend_fcall_info fci = empty_fcall_info;
+	zend_fcall_info_cache fci_cache = empty_fcall_info_cache;
+	zval uval;
+
+	if (user) {
+		if (zend_parse_parameters(ZEND_NUM_ARGS(), "af", &keys, &fci, &fci_cache) == FAILURE) {
+			return;
+		}
+	} else {
+		if (zend_parse_parameters(ZEND_NUM_ARGS(), "az", &keys, &val) == FAILURE) {
+			return;
+		}
 	}
 
 	/* Initialize return array */
@@ -2048,7 +2088,21 @@ PHP_FUNCTION(array_fill_keys)
 
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(keys), entry) {
 		ZVAL_DEREF(entry);
-		Z_TRY_ADDREF_P(val);
+		if (user) {
+			fci.retval = &uval;
+			fci.param_count = 1;
+			fci.params = entry;
+			fci.no_separation = 0;
+			if (zend_call_function(&fci, &fci_cache) != SUCCESS || Z_TYPE(uval) == IS_UNDEF) {
+				zval_dtor(return_value);
+				zval_ptr_dtor(&uval);
+				php_error_docref(NULL, E_WARNING, "An error occurred while invoking the callback");
+				RETURN_FALSE;
+			}
+			val = &uval;
+		} else {
+			Z_TRY_ADDREF_P(val);
+		}
 		if (Z_TYPE_P(entry) == IS_LONG) {
 			zend_hash_index_update(Z_ARRVAL_P(return_value), Z_LVAL_P(entry), val);
 		} else {
@@ -2057,6 +2111,23 @@ PHP_FUNCTION(array_fill_keys)
 			zend_string_release(key);
 		}
 	} ZEND_HASH_FOREACH_END();
+}
+
+/* {{{ proto array array_fill_keys(array keys, mixed val)
+   Create an array using the elements of the first parameter as keys each
+   initialized to val */
+PHP_FUNCTION(array_fill_keys)
+{
+	php_array_fill_keys(INTERNAL_FUNCTION_PARAM_PASSTHRU, 0);
+}
+/* }}} */
+
+/* {{{ proto array array_ufill_keys(array keys, callback)
+   Create an array using the elements of the first parameter as keys each
+   initialized to the return value of callback */
+PHP_FUNCTION(array_ufill_keys)
+{
+	php_array_fill_keys(INTERNAL_FUNCTION_PARAM_PASSTHRU, 1);
 }
 /* }}} */
 
