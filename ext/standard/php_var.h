@@ -34,7 +34,7 @@ PHP_FUNCTION(memory_get_peak_usage);
 
 PHPAPI void php_var_dump(zval *struc, int level);
 PHPAPI void php_var_export(zval *struc, int level);
-PHPAPI void php_var_export_ex(zval *struc, int level, smart_str *buf);
+PHPAPI void php_var_export_ex(zval *struc, int level, int opts, smart_str *buf);
 
 PHPAPI void php_debug_zval_dump(zval *struc, int level);
 
@@ -69,5 +69,12 @@ PHPAPI void var_replace(php_unserialize_data_t *var_hash, zval *ozval, zval *nzv
 PHPAPI void var_push_dtor(php_unserialize_data_t *var_hash, zval *val);
 PHPAPI zval *var_tmp_var(php_unserialize_data_t *var_hashx);
 PHPAPI void var_destroy(php_unserialize_data_t *var_hash);
+
+#define VAR_EXPORT_SHORT_ARRAY          (1<<0)
+#define VAR_EXPORT_NO_NUMERIC_INDEX     (1<<1)
+
+BEGIN_EXTERN_C()
+void register_var_constants(INIT_FUNC_ARGS);
+END_EXTERN_C()
 
 #endif /* PHP_VAR_H */

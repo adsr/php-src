@@ -385,19 +385,13 @@ PHP_FUNCTION(debug_zval_dump)
 		efree(tmp_spaces); \
 	} while(0);
 
-static void php_array_element_export(zval *zv, zend_ulong index, zend_string *key, int level, smart_str *buf) /* {{{ */
+static void php_array_element_export(zval *zv, zend_ulong index, zend_string *key, int opts, int level, smart_str *buf) /* {{{ */
 {
-	if (key == NULL) { /* numeric key */
-		buffer_append_spaces(buf, level+1);
-		smart_str_append_long(buf, (zend_long) index);
-		smart_str_appendl(buf, " => ", 4);
-
-	} else { /* string key */
+	buffer_append_spaces(buf, level + 1);
+	if (key != NULL) { /* string key */
 		zend_string *tmp_str;
 		zend_string *ckey = php_addcslashes(key, 0, "'\\", 2);
 		tmp_str = php_str_to_str(ZSTR_VAL(ckey), ZSTR_LEN(ckey), "\0", 1, "' . \"\\0\" . '", 12);
-
-		buffer_append_spaces(buf, level + 1);
 
 		smart_str_appendc(buf, '\'');
 		smart_str_append(buf, tmp_str);
@@ -405,18 +399,21 @@ static void php_array_element_export(zval *zv, zend_ulong index, zend_string *ke
 
 		zend_string_free(ckey);
 		zend_string_free(tmp_str);
+	} else if (!(opts & VAR_EXPORT_NO_NUMERIC_INDEX)) { /* numeric key */
+		smart_str_append_long(buf, (zend_long) index);
+		smart_str_appendl(buf, " => ", 4);
 	}
-	php_var_export_ex(zv, level + 2, buf);
+	php_var_export_ex(zv, level + 2, opts, buf);
 
 	smart_str_appendc(buf, ',');
 	smart_str_appendc(buf, '\n');
 }
 /* }}} */
 
-static void php_object_element_export(zval *zv, zend_ulong index, zend_string *key, int level, smart_str *buf) /* {{{ */
+static void php_object_element_export(zval *zv, zend_ulong index, zend_string *key, int opts, int level, smart_str *buf) /* {{{ */
 {
-	buffer_append_spaces(buf, level + 2);
-	if (key != NULL) {
+	buffer_append_spaces(buf, level + 1);
+	if (key != NULL) { /* string key */
 		const char *class_name, *prop_name;
 		size_t prop_name_len;
 		zend_string *pname_esc;
@@ -428,17 +425,18 @@ static void php_object_element_export(zval *zv, zend_ulong index, zend_string *k
 		smart_str_append(buf, pname_esc);
 		smart_str_appendc(buf, '\'');
 		zend_string_release(pname_esc);
-	} else {
+		smart_str_appendl(buf, " => ", 4);
+	} else if (!(opts & VAR_EXPORT_NO_NUMERIC_INDEX)) { /* numeric key */
 		smart_str_append_long(buf, (zend_long) index);
+		smart_str_appendl(buf, " => ", 4);
 	}
-	smart_str_appendl(buf, " => ", 4);
-	php_var_export_ex(zv, level + 2, buf);
+	php_var_export_ex(zv, level + 2, opts, buf);
 	smart_str_appendc(buf, ',');
 	smart_str_appendc(buf, '\n');
 }
 /* }}} */
 
-PHPAPI void php_var_export_ex(zval *struc, int level, smart_str *buf) /* {{{ */
+PHPAPI void php_var_export_ex(zval *struc, int level, int opts, smart_str *buf) /* {{{ */
 {
 	HashTable *myht;
 	char tmp_str[PHP_DOUBLE_MAX_LENGTH];
@@ -493,13 +491,17 @@ again:
 				zend_error(E_WARNING, "var_export does not handle circular references");
 				return;
 			}
-			if (level > 1) {
-				smart_str_appendc(buf, '\n');
-				buffer_append_spaces(buf, level - 1);
+			if (opts & VAR_EXPORT_SHORT_ARRAY) {
+				smart_str_appendl(buf, "[\n", 2);
+			} else {
+				if (level > 1) {
+					smart_str_appendc(buf, '\n');
+					buffer_append_spaces(buf, level - 1);
+				}
+				smart_str_appendl(buf, "array (\n", 8);
 			}
-			smart_str_appendl(buf, "array (\n", 8);
 			ZEND_HASH_FOREACH_KEY_VAL_IND(myht, index, key, val) {
-				php_array_element_export(val, index, key, level, buf);
+				php_array_element_export(val, index, key, opts, level, buf);
 			} ZEND_HASH_FOREACH_END();
 			if (ZEND_HASH_APPLY_PROTECTION(myht)) {
 				myht->u.v.nApplyCount--;
@@ -507,7 +509,11 @@ again:
 			if (level > 1) {
 				buffer_append_spaces(buf, level - 1);
 			}
-			smart_str_appendc(buf, ')');
+			if (opts & VAR_EXPORT_SHORT_ARRAY) {
+				smart_str_appendc(buf, ']');
+			} else {
+				smart_str_appendc(buf, ')');
+			}
 
 			break;
 
@@ -522,25 +528,32 @@ again:
 					myht->u.v.nApplyCount++;
 				}
 			}
-			if (level > 1) {
+			if (level > 1 && !(opts & VAR_EXPORT_SHORT_ARRAY)) {
 				smart_str_appendc(buf, '\n');
 				buffer_append_spaces(buf, level - 1);
 			}
 
 			smart_str_append(buf, Z_OBJCE_P(struc)->name);
-			smart_str_appendl(buf, "::__set_state(array(\n", 21);
+			if (opts & VAR_EXPORT_SHORT_ARRAY) {
+				smart_str_appendl(buf, "::__set_state([\n", 16);
+			} else {
+				smart_str_appendl(buf, "::__set_state(array(\n", 21);
+			}
 
 			if (myht) {
 				ZEND_HASH_FOREACH_KEY_VAL_IND(myht, index, key, val) {
-					php_object_element_export(val, index, key, level, buf);
+					php_object_element_export(val, index, key, opts, level, buf);
 				} ZEND_HASH_FOREACH_END();
 				myht->u.v.nApplyCount--;
 			}
 			if (level > 1) {
 				buffer_append_spaces(buf, level - 1);
 			}
-			smart_str_appendl(buf, "))", 2);
-
+			if (opts & VAR_EXPORT_SHORT_ARRAY) {
+				smart_str_appendl(buf, "])", 2);
+			} else {
+				smart_str_appendl(buf, "))", 2);
+			}
 			break;
 		case IS_REFERENCE:
 			struc = Z_REFVAL_P(struc);
@@ -557,7 +570,7 @@ again:
 PHPAPI void php_var_export(zval *struc, int level) /* {{{ */
 {
 	smart_str buf = {0};
-	php_var_export_ex(struc, level, &buf);
+	php_var_export_ex(struc, level, 0, &buf);
 	smart_str_0(&buf);
 	PHPWRITE(ZSTR_VAL(buf.s), ZSTR_LEN(buf.s));
 	smart_str_free(&buf);
@@ -569,14 +582,15 @@ PHPAPI void php_var_export(zval *struc, int level) /* {{{ */
 PHP_FUNCTION(var_export)
 {
 	zval *var;
+	zend_ulong opts = 0;
 	zend_bool return_output = 0;
 	smart_str buf = {0};
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|b", &var, &return_output) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|bl", &var, &return_output, &opts) == FAILURE) {
 		return;
 	}
 
-	php_var_export_ex(var, 1, &buf);
+	php_var_export_ex(var, 1, (int)opts, &buf);
 	smart_str_0 (&buf);
 
 	if (return_output) {
@@ -1157,6 +1171,15 @@ PHP_FUNCTION(memory_get_peak_usage) {
 	}
 
 	RETURN_LONG(zend_memory_peak_usage(real_usage));
+}
+/* }}} */
+
+/* {{{ register_var_constants
+ */
+void register_var_constants(INIT_FUNC_ARGS)
+{
+    REGISTER_LONG_CONSTANT("VAR_EXPORT_SHORT_ARRAY", VAR_EXPORT_SHORT_ARRAY, CONST_PERSISTENT|CONST_CS);
+    REGISTER_LONG_CONSTANT("VAR_EXPORT_NO_NUMERIC_INDEX", VAR_EXPORT_NO_NUMERIC_INDEX, CONST_PERSISTENT|CONST_CS);
 }
 /* }}} */
 
