@@ -107,6 +107,9 @@ ZEND_API zend_ast * ZEND_FASTCALL zend_ast_create_class_const_or_name(zend_ast *
 	if (zend_string_equals_literal_ci(name_str, "class")) {
 		zend_string_release(name_str);
 		return zend_ast_create(ZEND_AST_CLASS_NAME, class_name);
+	} else if (zend_string_equals_literal_ci(name_str, "function")) {
+		zend_string_release(name_str);
+		return zend_ast_create(ZEND_AST_FUNC_NAME, class_name);
 	} else {
 		return zend_ast_create(ZEND_AST_CLASS_CONST, class_name, name);
 	}
@@ -590,6 +593,12 @@ ZEND_API zend_result ZEND_FASTCALL zend_ast_evaluate(zval *result, zend_ast *ast
 				ZVAL_STR_COPY(result, scope->parent->name);
 			} else {
 				ZEND_ASSERT(0 && "Should have errored during compilation");
+			}
+			break;
+		case ZEND_AST_FUNC_NAME:
+			if (UNEXPECTED(zend_ast_evaluate(result, ast->child[0], scope) != SUCCESS)) {
+				ret = FAILURE;
+				break;
 			}
 			break;
 		case ZEND_AST_AND:
@@ -1825,6 +1834,10 @@ simple_list:
 		case ZEND_AST_CLASS_NAME:
 			zend_ast_export_ns_name(str, ast->child[0], 0, indent);
 			smart_str_appends(str, "::class");
+			break;
+		case ZEND_AST_FUNC_NAME:
+			zend_ast_export_ns_name(str, ast->child[0], 0, indent);
+			smart_str_appends(str, "::function");
 			break;
 		case ZEND_AST_ASSIGN:            BINARY_OP(" = ",   90, 91, 90);
 		case ZEND_AST_ASSIGN_REF:        BINARY_OP(" =& ",  90, 91, 90);

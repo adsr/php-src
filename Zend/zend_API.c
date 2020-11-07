@@ -3965,6 +3965,11 @@ ZEND_API zend_class_constant *zend_declare_class_constant_ex(zend_class_entry *c
 	if (zend_string_equals_literal_ci(name, "class")) {
 		zend_error_noreturn(ce->type == ZEND_INTERNAL_CLASS ? E_CORE_ERROR : E_COMPILE_ERROR,
 				"A class constant must not be called 'class'; it is reserved for class name fetching");
+	} else if (zend_string_equals_literal_ci(name, "function")) {
+	/*
+		zend_error_noreturn(ce->type == ZEND_INTERNAL_CLASS ? E_CORE_ERROR : E_COMPILE_ERROR,
+				"A class constant must not be called 'function'; it is reserved for function name resolution");
+	*/
 	}
 
 	if (Z_TYPE_P(value) == IS_STRING && !ZSTR_IS_INTERNED(Z_STR_P(value))) {

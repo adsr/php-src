@@ -3575,9 +3575,27 @@ void zend_compile_call_common(znode *result, zend_ast *args_ast, zend_function *
 
 zend_bool zend_compile_function_name(znode *name_node, zend_ast *name_ast) /* {{{ */
 {
-	zend_string *orig_name = zend_ast_get_str(name_ast);
+	zend_string *orig_name;
 	zend_bool is_fully_qualified;
 
+	if (name_ast->kind == ZEND_AST_FUNC_NAME) {
+		zend_ast *func_ast = name_ast->child[0];
+		if (func_ast->kind == ZEND_AST_ZVAL) {
+			/* strlen::function */
+			orig_name = zend_ast_get_str(func_ast);
+		} else if (zend_is_variable(func_ast)) {
+			/* $func_name::function */
+			zend_compile_var(name_node, func_ast, BP_VAR_R, 0);
+			return false;
+		} else {
+			/* get_func()::function */
+			zend_compile_expr(name_node, func_ast);
+			return false;
+		}
+	} else {
+		/* 'strlen' */
+		orig_name = zend_ast_get_str(name_ast);
+	}
 	name_node->op_type = IS_CONST;
 	ZVAL_STR(&name_node->u.constant, zend_resolve_function_name(
 		orig_name, name_ast->attr, &is_fully_qualified));
@@ -9146,7 +9164,7 @@ zend_bool zend_is_allowed_in_const_expr(zend_ast_kind kind) /* {{{ */
 		|| kind == ZEND_AST_ARRAY || kind == ZEND_AST_ARRAY_ELEM
 		|| kind == ZEND_AST_UNPACK
 		|| kind == ZEND_AST_CONST || kind == ZEND_AST_CLASS_CONST
-		|| kind == ZEND_AST_CLASS_NAME
+		|| kind == ZEND_AST_CLASS_NAME || kind == ZEND_AST_FUNC_NAME
 		|| kind == ZEND_AST_MAGIC_CONST || kind == ZEND_AST_COALESCE;
 }
 /* }}} */
@@ -9217,6 +9235,16 @@ void zend_compile_const_expr_class_name(zend_ast **ast_ptr) /* {{{ */
 	}
 }
 
+void zend_compile_const_expr_func_name(zend_ast **ast_ptr) /* {{{ */
+{
+	zend_ast *ast = *ast_ptr;
+	zend_ast *class_ast = ast->child[0];
+	if (class_ast->kind != ZEND_AST_ZVAL) {
+		zend_error_noreturn(E_COMPILE_ERROR,
+			"(expression)::function cannot be used in constant expressions");
+	}
+}
+
 void zend_compile_const_expr_const(zend_ast **ast_ptr) /* {{{ */
 {
 	zend_ast *ast = *ast_ptr;
@@ -9271,6 +9299,9 @@ void zend_compile_const_expr(zend_ast **ast_ptr) /* {{{ */
 			break;
 		case ZEND_AST_CLASS_NAME:
 			zend_compile_const_expr_class_name(ast_ptr);
+			break;
+		case ZEND_AST_FUNC_NAME:
+			zend_compile_const_expr_func_name(ast_ptr);
 			break;
 		case ZEND_AST_CONST:
 			zend_compile_const_expr_const(ast_ptr);
@@ -9567,6 +9598,9 @@ static void zend_compile_expr_inner(znode *result, zend_ast *ast) /* {{{ */
 			return;
 		case ZEND_AST_CLASS_NAME:
 			zend_compile_class_name(result, ast);
+			return;
+		case ZEND_AST_FUNC_NAME:
+			zend_compile_function_name(result, ast);
 			return;
 		case ZEND_AST_ENCAPS_LIST:
 			zend_compile_encaps_list(result, ast);
